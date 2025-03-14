@@ -4,9 +4,11 @@ import java.util.*;
 import java.util.concurrent.TimeUnit;
 import javax.annotation.Nonnull;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import impl.org.controlsfx.tools.rectangle.change.NewChangeStrategy;
 import io.atlassian.fugue.Pair;
+import org.controlsfx.control.tableview2.filter.filtereditor.SouthFilter;
 import org.glassfish.grizzly.Transport;
 import uk.ac.bris.cs.scotlandyard.model.*;
 
@@ -93,19 +95,52 @@ public class Filipek implements Ai {
 		return false;
 	}
 
+	// class to hold the nodes that distanceFromDetective searches through, their distances from source and tickets left
+	class moveState {
+		int position;
+		int parent;
+		int distance;
+		ImmutableMap<ScotlandYard.Ticket, Integer> tickets;
+
+		moveState(int position, int parent, int distance, ImmutableMap<ScotlandYard.Ticket, Integer> tickets) {
+			this.position = position;
+			this.parent = parent;
+			this.distance = distance;
+			this.tickets = tickets;
+		}
+
+		public void useMove(ScotlandYard.Ticket ticket) {
+
+		}
+
+		public int getPosition() {
+			return position;
+		}
+
+		public int getDistance() {
+			return distance;
+		}
+
+		public int getParent() {
+			return parent;
+		}
+	}
+
 	// Get the shortest distance from a detective to Mr. X
 	// TODO Add a way of keeping track of the tickets, possibly by adding a ticket board to the pairs
 	public int distanceFromDetective(@Nonnull Board board, Player detective, Player mrX) {
 		// Source and target nodes
 		int source = detective.location();
 		int target = mrX.location();
+		// tickets that detective possesses
+		ImmutableMap<ScotlandYard.Ticket, Integer> tickets = detective.tickets();
 
 		// Visited nodes
 		HashSet<Integer> visited = new HashSet<>();
 		// Distance of each node from source
 		HashMap<Integer, Integer> distances = new HashMap<>();
 		// Queue of nodes to be visited
-		Queue<Pair<Integer, Integer>> queue = new LinkedList<>();
+		Queue<moveState> queue = new LinkedList<>();
 
 		// Initialise all distances with infinity initially (no null values)
 		board.getSetup().graph.nodes().forEach(location -> distances.put(location, Integer.MAX_VALUE));
@@ -115,29 +150,29 @@ public class Filipek implements Ai {
 		distances.replace(source, 0);
 		// Add the source's adjacent nodes to the queue, and mark it as visited
 		for (int adjacentNode : board.getSetup().graph.adjacentNodes(source)) {
-			queue.add(Pair.pair(adjacentNode, source));
+			queue.add(new moveState(adjacentNode, source, 1, tickets));
 		}
 		visited.add(source);
 
 		while (!queue.isEmpty()) {
 			// Get next node off of queue
-			Pair<Integer,Integer> current = queue.poll();
+			moveState current = queue.poll();
 			// Update the distance to the current node
-			int minDistance = Math.min(distances.get(current.left()), distances.get(current.right()) + 1);
-			distances.replace(current.left(), minDistance);
+			int minDistance = Math.min(distances.get(current.getDistance()), distances.get(current.getParent()) + 1);
+			distances.replace(current.getPosition(), minDistance);
 
 			// TODO might need to change :( (or not??)
 			// If we've reached our target, return the distance to it
-			if (current.left() == target) {
-				return distances.get(current.left());
+			if (current.getPosition() == target) {
+				return distances.get(current.getPosition());
 			}
 
 			// If the node has not yet been visited, add adjacent nodes to the queue and mark as visited
-			if (!visited.contains(current.left())) {
-				for (int adjacentNode : board.getSetup().graph.adjacentNodes(current.left())) {
-					queue.add(Pair.pair(adjacentNode, current.left()));
+			if (!visited.contains(current.getPosition())) {
+				for (int adjacentNode : board.getSetup().graph.adjacentNodes(current.getPosition())) {
+					queue.add(new moveState(adjacentNode, current.getPosition(), current.getDistance() + 1, tickets));
 				}
-				visited.add(current.left());
+				visited.add(current.getPosition());
 			}
 
 		}
