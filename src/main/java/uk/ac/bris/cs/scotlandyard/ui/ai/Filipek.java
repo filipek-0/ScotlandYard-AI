@@ -24,7 +24,13 @@ public class Filipek implements Ai {
 	public Move pickMove(
 			@Nonnull Board board,
 			Pair<Long, TimeUnit> timeoutPair) {
-		System.out.println(distanceFromDetective(board, new Player(Detective.BLUE, ScotlandYard.defaultDetectiveTickets(), 111), new Player(MrX.MRX, ScotlandYard.defaultMrXTickets(), 1)));
+
+		// TODO: next 5 lines just for a quick test, try and change the ticket counts and locations
+		ImmutableMap.Builder<ScotlandYard.Ticket, Integer> detectiveTickets = ImmutableMap.builder();
+		detectiveTickets.put(ScotlandYard.Ticket.TAXI, 4);
+		detectiveTickets.put(ScotlandYard.Ticket.BUS, 0);
+		detectiveTickets.put(ScotlandYard.Ticket.UNDERGROUND, 1);
+		System.out.println(distanceFromDetective(board, new Player(Detective.BLUE, detectiveTickets.build(), 111), new Player(MrX.MRX, ScotlandYard.defaultMrXTickets(), 1)));
 
 		// returns a random move, replace with your own implementation
 		var moves = board.getAvailableMoves().asList();
@@ -100,6 +106,7 @@ public class Filipek implements Ai {
 		return false;
 	}
 
+	// TODO remove distance from this state, it is stored in the hashmap distances
 	// class to hold the nodes that distanceFromDetective searches through, their distances from source and tickets left
 	class moveState {
 		int position;
