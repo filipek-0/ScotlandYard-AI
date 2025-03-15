@@ -12,6 +12,9 @@ import org.controlsfx.control.tableview2.filter.filtereditor.SouthFilter;
 import org.glassfish.grizzly.Transport;
 import uk.ac.bris.cs.scotlandyard.model.*;
 
+import static uk.ac.bris.cs.scotlandyard.model.Piece.Detective;
+import static uk.ac.bris.cs.scotlandyard.model.Piece.MrX;
+
 public class Filipek implements Ai {
 
 	@Nonnull @Override
@@ -21,6 +24,8 @@ public class Filipek implements Ai {
 	public Move pickMove(
 			@Nonnull Board board,
 			Pair<Long, TimeUnit> timeoutPair) {
+		System.out.println(distanceFromDetective(board, new Player(Detective.BLUE, ScotlandYard.defaultDetectiveTickets(), 94), new Player(MrX.MRX, ScotlandYard.defaultMrXTickets(), 75)));
+
 		// returns a random move, replace with your own implementation
 		var moves = board.getAvailableMoves().asList();
 		return moves.get(new Random().nextInt(moves.size()));
@@ -109,10 +114,6 @@ public class Filipek implements Ai {
 			this.tickets = tickets;
 		}
 
-		public void useMove(ScotlandYard.Ticket ticket) {
-
-		}
-
 		public int getPosition() {
 			return position;
 		}
@@ -124,6 +125,25 @@ public class Filipek implements Ai {
 		public int getParent() {
 			return parent;
 		}
+
+		public ImmutableMap<ScotlandYard.Ticket, Integer> getTickets() {
+			return tickets;
+		}
+	}
+
+	// helper to return new ImmutableMap of TicketBoard that uses the ticket for the transport
+	public ImmutableMap<ScotlandYard.Ticket, Integer> useTicket(ImmutableMap<ScotlandYard.Ticket, Integer> tickets, ScotlandYard.Transport transport) {
+		ImmutableMap.Builder<ScotlandYard.Ticket, Integer> builder = ImmutableMap.builder();
+
+		for (ScotlandYard.Ticket ticket : tickets.keySet()) {
+			if (transport.requiredTicket().equals(ticket)) {
+				builder.put(ticket, tickets.get(ticket) - 1);
+			}
+			else {
+				builder.put(ticket, tickets.get(ticket));
+			}
+		}
+		return builder.build();
 	}
 
 	// Get the shortest distance from a detective to Mr. X
@@ -150,7 +170,13 @@ public class Filipek implements Ai {
 		distances.replace(source, 0);
 		// Add the source's adjacent nodes to the queue, and mark it as visited
 		for (int adjacentNode : board.getSetup().graph.adjacentNodes(source)) {
-			queue.add(new moveState(adjacentNode, source, 1, tickets));
+			for (ScotlandYard.Transport ticketType : board.getSetup().graph.edgeValueOrDefault(source, adjacentNode, ImmutableSet.of()))
+			{
+				if(detective.has(ticketType.requiredTicket())) {
+					ImmutableMap<ScotlandYard.Ticket, Integer> newTickets = useTicket(tickets, ticketType);
+					queue.add(new moveState(adjacentNode, source, 1, newTickets));
+				}
+			}
 		}
 		visited.add(source);
 
@@ -170,7 +196,15 @@ public class Filipek implements Ai {
 			// If the node has not yet been visited, add adjacent nodes to the queue and mark as visited
 			if (!visited.contains(current.getPosition())) {
 				for (int adjacentNode : board.getSetup().graph.adjacentNodes(current.getPosition())) {
-					queue.add(new moveState(adjacentNode, current.getPosition(), current.getDistance() + 1, tickets));
+					for (ScotlandYard.Transport ticketType : board.getSetup().graph.edgeValueOrDefault(source, adjacentNode, ImmutableSet.of()))
+					{
+						ImmutableMap<ScotlandYard.Ticket, Integer> ticketsHere = current.getTickets();
+						int TicketsOfType = (ticketsHere != null && tickets.get(ticketType.requiredTicket()) != null) ? tickets.get(ticketType.requiredTicket()) : 0;
+						if(TicketsOfType > 0) {
+							ImmutableMap<ScotlandYard.Ticket, Integer> newTickets = useTicket(tickets, ticketType);
+							queue.add(new moveState(adjacentNode, current.getPosition(), current.getDistance() + 1, newTickets));
+						}
+					}
 				}
 				visited.add(current.getPosition());
 			}
