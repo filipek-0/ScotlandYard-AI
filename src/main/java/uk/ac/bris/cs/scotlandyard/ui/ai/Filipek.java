@@ -24,7 +24,7 @@ public class Filipek implements Ai {
 	public Move pickMove(
 			@Nonnull Board board,
 			Pair<Long, TimeUnit> timeoutPair) {
-		System.out.println(distanceFromDetective(board, new Player(Detective.BLUE, ScotlandYard.defaultDetectiveTickets(), 94), new Player(MrX.MRX, ScotlandYard.defaultMrXTickets(), 75)));
+		System.out.println(distanceFromDetective(board, new Player(Detective.BLUE, ScotlandYard.defaultDetectiveTickets(), 111), new Player(MrX.MRX, ScotlandYard.defaultMrXTickets(), 1)));
 
 		// returns a random move, replace with your own implementation
 		var moves = board.getAvailableMoves().asList();
@@ -103,11 +103,11 @@ public class Filipek implements Ai {
 	// class to hold the nodes that distanceFromDetective searches through, their distances from source and tickets left
 	class moveState {
 		int position;
-		int parent;
+		moveState parent;
 		int distance;
 		ImmutableMap<ScotlandYard.Ticket, Integer> tickets;
 
-		moveState(int position, int parent, int distance, ImmutableMap<ScotlandYard.Ticket, Integer> tickets) {
+		moveState(int position, moveState parent, int distance, ImmutableMap<ScotlandYard.Ticket, Integer> tickets) {
 			this.position = position;
 			this.parent = parent;
 			this.distance = distance;
@@ -122,7 +122,7 @@ public class Filipek implements Ai {
 			return distance;
 		}
 
-		public int getParent() {
+		public moveState getParent() {
 			return parent;
 		}
 
@@ -165,16 +165,19 @@ public class Filipek implements Ai {
 		// Initialise all distances with infinity initially (no null values)
 		board.getSetup().graph.nodes().forEach(location -> distances.put(location, Integer.MAX_VALUE));
 
-
 		// set the source (detective location) to have distance 0 to itself
 		distances.replace(source, 0);
+		// set the moveState for the source node, where detective is standing
+		moveState sourceState = new moveState(source, null, 0, tickets);
+
 		// Add the source's adjacent nodes to the queue, and mark it as visited
 		for (int adjacentNode : board.getSetup().graph.adjacentNodes(source)) {
 			for (ScotlandYard.Transport ticketType : board.getSetup().graph.edgeValueOrDefault(source, adjacentNode, ImmutableSet.of()))
 			{
+				// if detective has the ticket for the transport needed to the adjacent node, use it and add to queue a new move state with updated tickets
 				if(detective.has(ticketType.requiredTicket())) {
 					ImmutableMap<ScotlandYard.Ticket, Integer> newTickets = useTicket(tickets, ticketType);
-					queue.add(new moveState(adjacentNode, source, 1, newTickets));
+					queue.add(new moveState(adjacentNode, sourceState, 1, newTickets));
 				}
 			}
 		}
@@ -184,7 +187,7 @@ public class Filipek implements Ai {
 			// Get next node off of queue
 			moveState current = queue.poll();
 			// Update the distance to the current node
-			int minDistance = Math.min(distances.get(current.getDistance()), distances.get(current.getParent()) + 1);
+			int minDistance = Math.min(distances.get(current.getPosition()), distances.get(current.getParent().getPosition()) + 1);
 			distances.replace(current.getPosition(), minDistance);
 
 			// TODO might need to change :( (or not??)
@@ -195,21 +198,26 @@ public class Filipek implements Ai {
 
 			// If the node has not yet been visited, add adjacent nodes to the queue and mark as visited
 			if (!visited.contains(current.getPosition())) {
+//				System.out.println("not yet visited: " + current.getPosition());	// TODO it does only one search, doesn't continue to look deeper
 				for (int adjacentNode : board.getSetup().graph.adjacentNodes(current.getPosition())) {
-					for (ScotlandYard.Transport ticketType : board.getSetup().graph.edgeValueOrDefault(source, adjacentNode, ImmutableSet.of()))
+//					System.out.println(adjacentNode);
+					for (ScotlandYard.Transport ticketType : board.getSetup().graph.edgeValueOrDefault(current.getPosition(), adjacentNode, ImmutableSet.of()))
 					{
-						ImmutableMap<ScotlandYard.Ticket, Integer> ticketsHere = current.getTickets();
-						int TicketsOfType = (ticketsHere != null && tickets.get(ticketType.requiredTicket()) != null) ? tickets.get(ticketType.requiredTicket()) : 0;
-						if(TicketsOfType > 0) {
-							ImmutableMap<ScotlandYard.Ticket, Integer> newTickets = useTicket(tickets, ticketType);
-							queue.add(new moveState(adjacentNode, current.getPosition(), current.getDistance() + 1, newTickets));
+						ImmutableMap<ScotlandYard.Ticket, Integer> ticketsHere = current.getTickets();	// current MoveState has already only the correct tickets left
+//						System.out.println(ticketType.requiredTicket());
+						int ticketsOfType = (ticketsHere != null && tickets.get(ticketType.requiredTicket()) != null) ? ticketsHere.get(ticketType.requiredTicket()) : 0;
+//						System.out.println(ticketsOfType);
+						if(ticketsOfType > 0) {
+							ImmutableMap<ScotlandYard.Ticket, Integer> newTickets = useTicket(ticketsHere, ticketType);
+							queue.add(new moveState(adjacentNode, current, current.getDistance() + 1, newTickets));
 						}
 					}
 				}
 				visited.add(current.getPosition());
 			}
-
 		}
+
+		System.out.println(distances);
 
 		// TODO might also need changing??????
 		// Otherwise, target not found - return 0
