@@ -27,17 +27,17 @@ public class Filipek implements Ai {
 
 		// TODO: next 5 lines just for a quick test, try and change the ticket counts and locations
 		ImmutableMap.Builder<ScotlandYard.Ticket, Integer> detectiveTickets = ImmutableMap.builder();
-		detectiveTickets.put(ScotlandYard.Ticket.TAXI, 4);
-		detectiveTickets.put(ScotlandYard.Ticket.BUS, 0);
-		detectiveTickets.put(ScotlandYard.Ticket.UNDERGROUND, 1);
-		System.out.println(distanceFromDetective(board, new Player(Detective.BLUE, detectiveTickets.build(), 111), new Player(MrX.MRX, ScotlandYard.defaultMrXTickets(), 1)));
+		detectiveTickets.put(ScotlandYard.Ticket.TAXI, 2);
+		detectiveTickets.put(ScotlandYard.Ticket.BUS, 1);
+		detectiveTickets.put(ScotlandYard.Ticket.UNDERGROUND, 0);
+		System.out.println(distanceFromDetective(board, new Player(Detective.BLUE, detectiveTickets.build(), 179), new Player(MrX.MRX, ScotlandYard.defaultMrXTickets(), 168)));
 
 		// returns a random move, replace with your own implementation
 		var moves = board.getAvailableMoves().asList();
 		return moves.get(new Random().nextInt(moves.size()));
 	}
 
-	private int score(@Nonnull Board board, Move.SingleMove move) {
+	private int score(@Nonnull Board board, Move.SingleMove move, ImmutableMap<ScotlandYard.Ticket, Integer> ticketBoard) {
 		// The final score of the move
 		int score = 0;
 
@@ -56,9 +56,16 @@ public class Filipek implements Ai {
 			if (checkOccupied(board, adjacentNode)) continue;
 
 			// ...and check that the detective can actually make that adjacent available move
+			// First, get all the possible tickets to use
 			ImmutableSet<ScotlandYard.Transport> moves
 					= board.getSetup().graph.edgeValueOrDefault(move.source(), move.destination, ImmutableSet.of());
-			if (!moves.isEmpty()) score += CONNECTIVITY;
+			for (ScotlandYard.Transport transport : moves) {
+				if (ticketBoard.get(transport.requiredTicket()) > 0) {
+					score += CONNECTIVITY;
+					break;	// if mrX has any of the tickets required to get to the destination node, give it the points, don't look further
+				}
+			}
+
 		}
 
 		// Modify score based on the distance to the nearest detective
@@ -106,27 +113,33 @@ public class Filipek implements Ai {
 		return false;
 	}
 
-	// TODO remove distance from this state, it is stored in the hashmap distances
-	// class to hold the nodes that distanceFromDetective searches through, their distances from source and tickets left
+	// Returns all detectives as players
+	private ImmutableSet<Player> getDetectives(Board board) {
+		ImmutableSet.Builder<Player> detectives = ImmutableSet.builder();
+		for (Piece piece : board.getPlayers()) {
+			if (piece.isDetective()) {
+				Optional<Board.TicketBoard> tickets = (board.getPlayerTickets(piece));
+				Optional<Integer> location = board.getDetectiveLocation((Detective) piece);
+
+			}
+		}
+		return null;
+	}
+
+	// class to hold the nodes that distanceFromDetective searches through, and tickets left
 	class moveState {
 		int position;
 		moveState parent;
-		int distance;
 		ImmutableMap<ScotlandYard.Ticket, Integer> tickets;
 
-		moveState(int position, moveState parent, int distance, ImmutableMap<ScotlandYard.Ticket, Integer> tickets) {
+		moveState(int position, moveState parent, ImmutableMap<ScotlandYard.Ticket, Integer> tickets) {
 			this.position = position;
 			this.parent = parent;
-			this.distance = distance;
 			this.tickets = tickets;
 		}
 
 		public int getPosition() {
 			return position;
-		}
-
-		public int getDistance() {
-			return distance;
 		}
 
 		public moveState getParent() {
@@ -153,14 +166,23 @@ public class Filipek implements Ai {
 		return builder.build();
 	}
 
+	// helper to convert from TicketBoard into Map<Ticket, Integer>, used in distanceFromDetective
+	public ImmutableMap<ScotlandYard.Ticket, Integer> convertTickets(Board.TicketBoard ticketBoard) {
+		// map to store the tickets
+		Map<ScotlandYard.Ticket, Integer> tickets = new HashMap<>();
+
+		// iterate over all ticket types and add according counts to the map
+		for (ScotlandYard.Ticket ticket : ScotlandYard.Ticket.values()) {
+			tickets.put(ticket, ticketBoard.getCount(ticket));
+		}
+		return ImmutableMap.copyOf(tickets);
+	}
+
 	// Get the shortest distance from a detective to Mr. X
 	// TODO Add a way of keeping track of the tickets, possibly by adding a ticket board to the pairs
-	public int distanceFromDetective(@Nonnull Board board, Player detective, Player mrX) {
-		// Source and target nodes
-		int source = detective.location();
-		int target = mrX.location();
+	public int distanceFromDetective(@Nonnull Board board, int target, int source, Board.TicketBoard ticketBoard) {
 		// tickets that detective possesses
-		ImmutableMap<ScotlandYard.Ticket, Integer> tickets = detective.tickets();
+		ImmutableMap<ScotlandYard.Ticket, Integer> tickets = convertTickets(ticketBoard);
 
 		// Visited nodes
 		HashSet<Integer> visited = new HashSet<>();
@@ -175,16 +197,16 @@ public class Filipek implements Ai {
 		// set the source (detective location) to have distance 0 to itself
 		distances.replace(source, 0);
 		// set the moveState for the source node, where detective is standing
-		moveState sourceState = new moveState(source, null, 0, tickets);
+		moveState sourceState = new moveState(source, null, tickets);
 
 		// Add the source's adjacent nodes to the queue, and mark it as visited
 		for (int adjacentNode : board.getSetup().graph.adjacentNodes(source)) {
 			for (ScotlandYard.Transport ticketType : board.getSetup().graph.edgeValueOrDefault(source, adjacentNode, ImmutableSet.of()))
 			{
 				// if detective has the ticket for the transport needed to the adjacent node, use it and add to queue a new move state with updated tickets
-				if(detective.has(ticketType.requiredTicket())) {
+				if(tickets.get(ticketType) > 0) {
 					ImmutableMap<ScotlandYard.Ticket, Integer> newTickets = useTicket(tickets, ticketType);
-					queue.add(new moveState(adjacentNode, sourceState, 1, newTickets));
+					queue.add(new moveState(adjacentNode, sourceState, newTickets));
 				}
 			}
 		}
@@ -197,15 +219,15 @@ public class Filipek implements Ai {
 			int minDistance = Math.min(distances.get(current.getPosition()), distances.get(current.getParent().getPosition()) + 1);
 			distances.replace(current.getPosition(), minDistance);
 
-			// TODO might need to change :( (or not??)
 			// If we've reached our target, return the distance to it
 			if (current.getPosition() == target) {
+				System.out.println(current.getTickets().toString());
 				return distances.get(current.getPosition());
 			}
 
 			// If the node has not yet been visited, add adjacent nodes to the queue and mark as visited
 			if (!visited.contains(current.getPosition())) {
-//				System.out.println("not yet visited: " + current.getPosition());	// TODO it does only one search, doesn't continue to look deeper
+//				System.out.println("not yet visited: " + current.getPosition());
 				for (int adjacentNode : board.getSetup().graph.adjacentNodes(current.getPosition())) {
 //					System.out.println(adjacentNode);
 					for (ScotlandYard.Transport ticketType : board.getSetup().graph.edgeValueOrDefault(current.getPosition(), adjacentNode, ImmutableSet.of()))
@@ -216,7 +238,7 @@ public class Filipek implements Ai {
 //						System.out.println(ticketsOfType);
 						if(ticketsOfType > 0) {
 							ImmutableMap<ScotlandYard.Ticket, Integer> newTickets = useTicket(ticketsHere, ticketType);
-							queue.add(new moveState(adjacentNode, current, current.getDistance() + 1, newTickets));
+							queue.add(new moveState(adjacentNode, current, newTickets));
 						}
 					}
 				}
@@ -226,8 +248,7 @@ public class Filipek implements Ai {
 
 		System.out.println(distances);
 
-		// TODO might also need changing??????
-		// Otherwise, target not found - return 0
-		return 0;
+		// Otherwise, target not found i.e. not reachable - return max distance
+		return Integer.MAX_VALUE;
 	}
 }
