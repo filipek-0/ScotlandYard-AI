@@ -26,24 +26,47 @@ public class Filipek implements Ai {
 			Pair<Long, TimeUnit> timeoutPair) {
 
 		// TODO: next 5 lines just for a quick test, try and change the ticket counts and locations
-		ImmutableMap.Builder<ScotlandYard.Ticket, Integer> detectiveTickets = ImmutableMap.builder();
-		detectiveTickets.put(ScotlandYard.Ticket.TAXI, 2);
-		detectiveTickets.put(ScotlandYard.Ticket.BUS, 1);
-		detectiveTickets.put(ScotlandYard.Ticket.UNDERGROUND, 0);
-		System.out.println(distanceFromDetective(board, new Player(Detective.BLUE, detectiveTickets.build(), 179), new Player(MrX.MRX, ScotlandYard.defaultMrXTickets(), 168)));
+//		ImmutableMap.Builder<ScotlandYard.Ticket, Integer> detectiveTickets = ImmutableMap.builder();
+//		detectiveTickets.put(ScotlandYard.Ticket.TAXI, 2);
+//		detectiveTickets.put(ScotlandYard.Ticket.BUS, 1);
+//		detectiveTickets.put(ScotlandYard.Ticket.UNDERGROUND, 0);
+//		System.out.println(distanceFromDetective(board, new Player(Detective.BLUE, detectiveTickets.build(), 179), new Player(MrX.MRX, ScotlandYard.defaultMrXTickets(), 168)));
 
-		// returns a random move, replace with your own implementation
+		// mrX's tickets
+		Optional<Board.TicketBoard> mrXTicketBoard = board.getPlayerTickets(MrX.MRX);
+		ImmutableMap<ScotlandYard.Ticket, Integer> mrXTickets = ImmutableMap.of();
+		if (mrXTicketBoard.isPresent())
+			mrXTickets = convertTickets(mrXTicketBoard.get());
+
 		var moves = board.getAvailableMoves().asList();
-		return moves.get(new Random().nextInt(moves.size()));
+		// map to store scores of every move
+		Map<Move, Integer> scoreForMoves = new HashMap<>();
+
+		// calls score for all the available moves
+		for(var move : moves) {
+			if (move instanceof Move.SingleMove) {
+				scoreForMoves.put(move, score(board, (Move.SingleMove) move, mrXTickets));
+				System.out.println("for " + ((Move.SingleMove) move).ticket + " to " + ((Move.SingleMove) move).destination + " the score: " + score(board, (Move.SingleMove) move, mrXTickets));
+			}
+		}
+		// pick the best move with the highest score, and return the key for it, so the move itself
+		Move bestMove = scoreForMoves.entrySet().stream()
+				.max(Map.Entry.comparingByValue())
+				.map(Map.Entry::getKey)
+				.orElse(null);
+
+		return bestMove;
 	}
 
-	private int score(@Nonnull Board board, Move.SingleMove move, ImmutableMap<ScotlandYard.Ticket, Integer> ticketBoard) {
+
+	private int score(@Nonnull Board board, Move.SingleMove move, ImmutableMap<ScotlandYard.Ticket, Integer> mrXTickets) {
 		// The final score of the move
 		int score = 0;
 
 		// Adds score for each node adjacent to the destination
 		final int CONNECTIVITY = 10;
-		// TODO Create a suitable scoring function/whatever for the distance to the location/Mr. X
+		// TODO what do you think of using it like this? (score += PENALTY * (average distance before and after move))
+		final int PENALTY = 40;
 		// Modifies scores based off of distance to (nearest?) detective
 		final int[] DISTANCE = new int[]{};
 		// (Secret Move) Modify score based on different transport types at source
@@ -55,12 +78,12 @@ public class Filipek implements Ai {
 			// First, check if the location is occupied
 			if (checkOccupied(board, adjacentNode)) continue;
 
-			// ...and check that the detective can actually make that adjacent available move
+			// ...and check that Mr. X can actually make that adjacent available move
 			// First, get all the possible tickets to use
 			ImmutableSet<ScotlandYard.Transport> moves
 					= board.getSetup().graph.edgeValueOrDefault(move.source(), move.destination, ImmutableSet.of());
 			for (ScotlandYard.Transport transport : moves) {
-				if (ticketBoard.get(transport.requiredTicket()) > 0) {
+				if (mrXTickets.get(transport.requiredTicket()) > 0) {
 					score += CONNECTIVITY;
 					break;	// if mrX has any of the tickets required to get to the destination node, give it the points, don't look further
 				}
@@ -68,9 +91,21 @@ public class Filipek implements Ai {
 
 		}
 
-		// Modify score based on the distance to the nearest detective
-		// TODO Evaluate the minimum distance from a detective/two detectives
+		// Modify score based on the distances to the detectives compared to the location where mrX starts
+		// TODO Evaluate the closest two detectives, which MrX should run from
+		// distances at the starting location of the move, the source
+		List<Integer> detectiveDistancesSource = detectiveDistances(board, move.source());
+		// distances at the destination of the move
+		List<Integer> detectiveDistancesDestination = detectiveDistances(board, move.destination);
 
+		double initialDanger = detectiveDistancesSource.stream()
+				.mapToDouble(distance -> 1.0 / distance)
+				.sum();
+		double nextDanger = detectiveDistancesDestination.stream()
+				.mapToDouble(distance -> 1.0 / distance)
+				.sum();
+		double dangerChange = initialDanger - nextDanger;
+		score += (int) Math.floor(PENALTY * dangerChange);
 
 
 		// If the move uses a secret ticket, evaluate its use based off of the
@@ -90,12 +125,12 @@ public class Filipek implements Ai {
 		return score;
 	}
 
-	private int score(@Nonnull Board board, Move.DoubleMove move) {
-		// Slightly discouraged from using a double ticket
-		int score = -5;
-
-		return score;
-	}
+//	private int score(@Nonnull Board board, Move.DoubleMove move) {
+//		// Slightly discouraged from using a double ticket
+//		int score = -5;
+//
+//		return score;
+//	}
 
 
 	// ---------- Helper Functions ----------
@@ -114,16 +149,19 @@ public class Filipek implements Ai {
 	}
 
 	// Returns all detectives as players
-	private ImmutableSet<Player> getDetectives(Board board) {
-		ImmutableSet.Builder<Player> detectives = ImmutableSet.builder();
+	private List<Integer> detectiveDistances(Board board, int mrXLocation) {
+		List<Integer> distances = new ArrayList<>();
 		for (Piece piece : board.getPlayers()) {
 			if (piece.isDetective()) {
 				Optional<Board.TicketBoard> tickets = (board.getPlayerTickets(piece));
-				Optional<Integer> location = board.getDetectiveLocation((Detective) piece);
-
+				Optional<Integer> detectiveLocation = board.getDetectiveLocation((Detective) piece);
+				if (tickets.isPresent() && detectiveLocation.isPresent()) {
+//					System.out.println("current detective location: " + detectiveLocation.get() + " mrXLocation: " + mrXLocation);
+					distances.add(distanceFromDetective(board, mrXLocation, detectiveLocation.get(), tickets.get()));
+				}
 			}
 		}
-		return null;
+		return distances;
 	}
 
 	// class to hold the nodes that distanceFromDetective searches through, and tickets left
@@ -204,7 +242,7 @@ public class Filipek implements Ai {
 			for (ScotlandYard.Transport ticketType : board.getSetup().graph.edgeValueOrDefault(source, adjacentNode, ImmutableSet.of()))
 			{
 				// if detective has the ticket for the transport needed to the adjacent node, use it and add to queue a new move state with updated tickets
-				if(tickets.get(ticketType) > 0) {
+				if(tickets != null && tickets.containsKey(ticketType.requiredTicket()) && tickets.get(ticketType.requiredTicket()) > 0) {
 					ImmutableMap<ScotlandYard.Ticket, Integer> newTickets = useTicket(tickets, ticketType);
 					queue.add(new moveState(adjacentNode, sourceState, newTickets));
 				}
@@ -221,7 +259,7 @@ public class Filipek implements Ai {
 
 			// If we've reached our target, return the distance to it
 			if (current.getPosition() == target) {
-				System.out.println(current.getTickets().toString());
+//				System.out.println(current.getTickets().toString());
 				return distances.get(current.getPosition());
 			}
 
@@ -246,7 +284,7 @@ public class Filipek implements Ai {
 			}
 		}
 
-		System.out.println(distances);
+		//System.out.println(distances);
 
 		// Otherwise, target not found i.e. not reachable - return max distance
 		return Integer.MAX_VALUE;
