@@ -6,10 +6,7 @@ import javax.annotation.Nonnull;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import impl.org.controlsfx.tools.rectangle.change.NewChangeStrategy;
 import io.atlassian.fugue.Pair;
-import org.controlsfx.control.tableview2.filter.filtereditor.SouthFilter;
-import org.glassfish.grizzly.Transport;
 import uk.ac.bris.cs.scotlandyard.model.*;
 
 import static uk.ac.bris.cs.scotlandyard.model.Piece.Detective;
@@ -25,19 +22,7 @@ public class Filipek implements Ai {
 			@Nonnull Board board,
 			Pair<Long, TimeUnit> timeoutPair) {
 
-		// TODO: next 5 lines just for a quick test, try and change the ticket counts and locations
-//		ImmutableMap.Builder<ScotlandYard.Ticket, Integer> detectiveTickets = ImmutableMap.builder();
-//		detectiveTickets.put(ScotlandYard.Ticket.TAXI, 2);
-//		detectiveTickets.put(ScotlandYard.Ticket.BUS, 1);
-//		detectiveTickets.put(ScotlandYard.Ticket.UNDERGROUND, 0);
-//		System.out.println(distanceFromDetective(board, new Player(Detective.BLUE, detectiveTickets.build(), 179), new Player(MrX.MRX, ScotlandYard.defaultMrXTickets(), 168)));
-
-		// mrX's tickets
-		Optional<Board.TicketBoard> mrXTicketBoard = board.getPlayerTickets(MrX.MRX);
-		ImmutableMap<ScotlandYard.Ticket, Integer> mrXTickets = ImmutableMap.of();
-		if (mrXTicketBoard.isPresent())
-			mrXTickets = convertTickets(mrXTicketBoard.get());
-
+		// get all available moves and store them in moves variable
 		var moves = board.getAvailableMoves().asList();
 		// map to store scores of every move
 		Map<Move, Integer> scoreForMoves = new HashMap<>();
@@ -45,8 +30,13 @@ public class Filipek implements Ai {
 		// calls score for all the available moves
 		for (var move : moves) {
 			if (move instanceof Move.SingleMove) {
-				scoreForMoves.put(move, score(board, (Move.SingleMove) move, mrXTickets));
-				System.out.println("for " + ((Move.SingleMove) move).ticket + " to " + ((Move.SingleMove) move).destination + " the score: " + score(board, (Move.SingleMove) move, mrXTickets));
+				scoreForMoves.put(move, score(board, (Move.SingleMove) move));
+				System.out.println("for " + ((Move.SingleMove) move).ticket + " to " + ((Move.SingleMove) move).destination + " the score: " + score(board, (Move.SingleMove) move));
+			}
+			else if (move instanceof Move.DoubleMove) {
+				scoreForMoves.put(move, score(board, (Move.DoubleMove) move));
+				System.out.println("for " + ((Move.DoubleMove) move).ticket1 + " " + ((Move.DoubleMove) move).ticket2 + " to " + ((Move.DoubleMove) move).destination2 + " the score: " + score(board, (Move.DoubleMove) move) + " DOUBLE");
+
 			}
 		}
 		// pick the best move with the highest score, and return the key for it, so the move itself
@@ -59,28 +49,64 @@ public class Filipek implements Ai {
 	}
 
 
-	private int score(@Nonnull Board board, Move.SingleMove move, ImmutableMap<ScotlandYard.Ticket, Integer> mrXTickets) {
+	private int score(@Nonnull Board board, Move.SingleMove move) {
 		// The final score of the move
 		int score = 0;
 
 		// Adds score for each node adjacent to the destination
 		final int CONNECTIVITY = 5;
-		// TODO what do you think of using it like this? (score += PENALTY * (average distance before and after move))
-		final int PENALTY = 40;
+		// weights the distances from the detectives
+		final int WEIGHT_DISTANCE = 40;
 		// (Secret Move) Modify score based on different transport types at source
-		final int[] SECRET_CONNECTIVITY = {-10, 5, 15};
-
+		final int[] SECRET_CONNECTIVITY = {-10, 0, 15};
 
 		// Scores the connectivity of the destination node, increasing
 		// the score for each adjacent available move at the destination
-		score += destinationConnectivity(board, move.source(), move.destination, mrXTickets, CONNECTIVITY);
+		score += scoreConnectivity(board, move.source(), move.destination, CONNECTIVITY);
 
-		// Modify score based on the distances to the detectives compared to the location where mrX starts
-		// TODO Evaluate the closest two detectives, which MrX should run from
+		// Modify score based on the distances to the detectives where the moves ends up compared to the location where mrX starts
+		score += scoreDistances(board, move.source(), move.destination, WEIGHT_DISTANCE);
+
+		// Evaluate the use of secret tickets based off of the NUMBER OF
+		// DIFFERENT TYPES of modes of transport available at the SOURCE
+		if (move.ticket == ScotlandYard.Ticket.SECRET)
+			score += scoreSecret(board, move.source(), SECRET_CONNECTIVITY);
+
+		return score;
+	}
+
+	// scores double moves
+	private int score(@Nonnull Board board, Move.DoubleMove move) {
+		// Slightly discouraged from using a double ticket
+		int score = -10;
+
+		// Adds score for each node adjacent to the destination
+		final int CONNECTIVITY = 5;
+		// weights the distances from the detectives
+		final int WEIGHT_DISTANCE = 40;
+		// (Secret Move) Modify score based on different transport types at source
+		final int[] SECRET_CONNECTIVITY = {-10, 5, 15};
+
+		score += scoreConnectivity(board, move.source(), move.destination2, CONNECTIVITY);
+
+		score += scoreDistances(board, move.source(), move.destination2, WEIGHT_DISTANCE);
+
+		if (move.ticket1 == ScotlandYard.Ticket.SECRET)
+			score += scoreSecret(board, move.source(), SECRET_CONNECTIVITY);
+
+		if (move.ticket2 == ScotlandYard.Ticket.SECRET)
+			score += scoreSecret(board, move.source(), SECRET_CONNECTIVITY);
+
+		return score;
+	}
+
+	// ---------- Helper Functions ----------
+
+	private int scoreDistances(Board board, int source, int destination, int WEIGHT_DISTANCE) {
 		// distances at the starting location of the move, the source
-		List<Integer> detectiveDistancesSource = detectiveDistances(board, move.source());
+		List<Integer> detectiveDistancesSource = detectiveDistances(board, source);
 		// distances at the destination of the move
-		List<Integer> detectiveDistancesDestination = detectiveDistances(board, move.destination);
+		List<Integer> detectiveDistancesDestination = detectiveDistances(board, destination);
 
 		double initialDanger = detectiveDistancesSource.stream()
 				.mapToDouble(distance -> 1.0 / distance)
@@ -89,31 +115,24 @@ public class Filipek implements Ai {
 				.mapToDouble(distance -> 1.0 / distance)
 				.sum();
 		double dangerChange = initialDanger - nextDanger;
-		score += (int) Math.floor(PENALTY * dangerChange);
 
-		// Evaluate the use of secret tickets based off of the NUMBER OF
-		// DIFFERENT TYPES of modes of transport available at the SOURCE
-		if (move.ticket == ScotlandYard.Ticket.SECRET)
-			score += evaluateSecret(board, move.source(), SECRET_CONNECTIVITY);
-
-
-		return score;
+		return (int) Math.floor(WEIGHT_DISTANCE * dangerChange);
 	}
 
-//	private int score(@Nonnull Board board, Move.DoubleMove move) {
-//		// Slightly discouraged from using a double ticket
-//		int score = -5;
-//
-//		return score;
-//	}
-
-
-	// ---------- Helper Functions ----------
 	// Scores the connectivity of the destination node (Used in: score())
-	private int destinationConnectivity(Board board, int source, int destination,
-										ImmutableMap<ScotlandYard.Ticket, Integer> mrXTickets, int weight) {
+	private int scoreConnectivity(Board board, int source, int destination, int weight) {
 		// Increase score for each adjacent available move at the destination
 		int score = 0;
+
+
+		// mrX's tickets
+		Optional<Board.TicketBoard> mrXTicketBoard = board.getPlayerTickets(MrX.MRX);
+		ImmutableMap<ScotlandYard.Ticket, Integer> mrXTickets = ImmutableMap.of();
+		if (mrXTicketBoard.isPresent())
+			mrXTickets = convertTickets(mrXTicketBoard.get());
+		else
+			mrXTickets = ImmutableMap.of();
+
 
 		for (int adjacentNode : board.getSetup().graph.adjacentNodes(destination)) {
 			// First, check if the location is occupied
@@ -124,7 +143,8 @@ public class Filipek implements Ai {
 			ImmutableSet<ScotlandYard.Transport> moves
 					= board.getSetup().graph.edgeValueOrDefault(source, destination, ImmutableSet.of());
 
-			if (moves.stream().anyMatch(transport -> mrXTickets.getOrDefault(transport.requiredTicket(), 0) > 0)) {
+			ImmutableMap<ScotlandYard.Ticket, Integer> finalMrXTickets = mrXTickets;
+			if (moves.stream().anyMatch(transport -> finalMrXTickets.getOrDefault(transport.requiredTicket(), 0) > 0)) {
 				score += weight; // Stream terminates immediately once condition met
 			}
 		}
@@ -149,7 +169,7 @@ public class Filipek implements Ai {
 	}
 
 	// Evaluates the use of a secret ticket for a move (Used in: score())
-	private int evaluateSecret(Board board, int moveSource, int[] secretConnectivity) {
+	private int scoreSecret(Board board, int moveSource, int[] secretConnectivity) {
 		// More possible transport types = better use of secret ticket
 
 		HashSet<ScotlandYard.Transport> transports = new HashSet<>();
