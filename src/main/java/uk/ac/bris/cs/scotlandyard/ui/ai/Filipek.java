@@ -109,7 +109,7 @@ public class Filipek implements Ai {
 
 
 	// ---------- Helper Functions ----------
-	// Scores the connectivity of the destination node
+	// Scores the connectivity of the destination node (Used in: score())
 	private int destinationConnectivity(Board board, int source, int destination,
 										ImmutableMap<ScotlandYard.Ticket, Integer> mrXTickets, int weight) {
 		// Increase score for each adjacent available move at the destination
