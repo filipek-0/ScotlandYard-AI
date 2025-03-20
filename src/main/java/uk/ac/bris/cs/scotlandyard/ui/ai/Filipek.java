@@ -70,18 +70,16 @@ public class Filipek implements Ai {
 		}
 		// Else, if evaluating the detective's moves:
 		else {
-			// TODO ERROR: DOESN'T WORK FOR MULTIPLE DETECTIVES! THE PROBLEM IS PROBABLY WITH THE ADVANCE METHOD IN DETECTIVEMOVES
+			// TODO CRASHES FROM TIME TO TIME
 			int minEval = Integer.MAX_VALUE;
 			for (Move move : moves) {
-				if (move.commencedBy() == MrX.MRX) {
-					throw new IllegalArgumentException("MrX in detective moves");
-				}
-
-				int eval = minimax(gameState.advance((DetectiveMoves)move), depth - 1, alpha, beta, true).score;
+				int eval = minimax(((DetectiveMoves)move).advance(gameState), depth - 1, alpha, beta, true).score;
 				if (eval < minEval) {
 					minEval = eval;
 					bestMove = move;
-				}				beta = Math.min(beta, eval);
+				}
+				System.out.println(minEval);
+				beta = Math.min(beta, eval);
 				if (beta <= alpha) break;
 			}
 
@@ -108,7 +106,7 @@ public class Filipek implements Ai {
 	}
 
 	// class to hold compound/joint movements as detectives
-	class DetectiveMoves implements Move {
+	public class DetectiveMoves implements Move {
 		private final List<Move> moves;
 
 		public DetectiveMoves(List<Move> moves) {
@@ -165,7 +163,9 @@ public class Filipek implements Ai {
 		ImmutableSet.Builder<Move> detectiveMoves = ImmutableSet.builder();
 
 		for (List<Move> combination : moveCombinations) {
-			detectiveMoves.add(new DetectiveMoves(combination));
+			if (combinationIsValid(combination)) {
+				detectiveMoves.add(new DetectiveMoves(combination));
+			}
 		}
 
 		return detectiveMoves.build();
@@ -177,7 +177,25 @@ public class Filipek implements Ai {
 		return Lists.cartesianProduct(moveLists);
 	}
 
-	// TODO: EITHER THIS SCORING IS WRONG OR THE ALPHA-BETA PRUNING, BUT IT GIVES WEIRD SCORES, ITS PROBABLY THE MINMAX, BECAUSE THIS LOOKS STRAIGHTFORWARD
+	public boolean combinationIsValid(List<Move> combination) {
+		// set to hold the locations that detectives want to move to
+		Set<Integer> destinations = new HashSet<>();
+		Set<Integer> sources = new HashSet<>();
+		for (Move move : combination) {
+			if (move instanceof Move.SingleMove) {
+				// if destination is already present in the set, return false, so that the combination is not valid
+				if (!destinations.add(((Move.SingleMove) move).destination)) {
+					return false;
+				}
+				if (!sources.add(((Move.SingleMove) move).source())) {
+					return false;
+				}
+			}
+		}
+		return true;
+	}
+
+	// TODO: IMPROVE SCORING, TAKE INTO ACCOUNT SECRET, CONNECTIVITY AND DOUBLE MOVES
 	private int minimaxScore(Board board) {
 		final int DIST_WEIGHT = 10;
 
@@ -202,11 +220,9 @@ public class Filipek implements Ai {
 			else if (distance < min2) min2 = distance;
 		}
 
-		System.out.println((DIST_WEIGHT * (min1 - 3)));
 		// If there is only one detective (i.e. two players), don't factor in the second min. distance
 		if (board.getPlayers().size() == 2) return (DIST_WEIGHT * (min1 - 3));
 
-		System.out.println((DIST_WEIGHT * ((min1 - 3) + Math.floor(0.5 * (min2 - 2)))));
 		return (int) (DIST_WEIGHT * ((min1 - 3) + Math.floor(0.5 * (min2 - 2))));
 	}
 
