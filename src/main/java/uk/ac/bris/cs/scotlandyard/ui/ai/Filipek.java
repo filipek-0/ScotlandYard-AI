@@ -26,58 +26,87 @@ public class Filipek implements Ai {
 
 		Board.GameState gameState = createGameState(board);
 
-
 		ImmutableSet<Move> moves = gameState.getAvailableMoves();
 
-		int bestEval = Integer.MIN_VALUE;
-		Move bestMove = moves.asList().get(0);
-		// So that we never return a null move, initialise bestMove to the first move
-
-		for (Move move : moves) {
-			// Note: Depth is multiplied
-			int eval = minimax(gameState.advance(move), TURNS * 2, false);
-			if (eval > bestEval) {
-				bestEval = eval;
-				bestMove = move;
-			}
-		}
-
-		return bestMove;
+		// call minimax to get the best move
+		return minimax(gameState, TURNS * 2, Integer.MIN_VALUE, Integer.MAX_VALUE ,true).move;
 	}
 
-	// Note: MaxPlayer = Mr. X
-	public int minimax(Board.GameState gameState, int depth, boolean isMaxPlayer) {
-		System.out.println("Current depth: " + depth);
+	// class to score the move used in minimax, thus we get both score and the move
+	class MoveScore {
+		private final Move move;
+		private final int score;
+
+		public MoveScore(Move move, int score) {
+			this.move = move;
+			this.score = score;
+		}
+
+		public Move getMove() {
+			return move;
+		}
+		public int getScore() {
+			return score;
+		}
+	}
+
+	// Note: MaxPlayer = Mr. X, alpha, beta are the best scores either side can achieve
+	public MoveScore minimax(Board.GameState gameState, int depth, int alpha, int beta, boolean isMaxPlayer) {
 		// First, check for a winner
 		if (!gameState.getWinner().isEmpty()) {
-			return (gameState.getWinner().equals(ImmutableSet.of(MrX.MRX))) ? Integer.MAX_VALUE : Integer.MIN_VALUE;
+			// only score is returned, because at this point, we are looking only at the board evaluation, moves are considered on higher levels of the tree
+			return (gameState.getWinner().equals(ImmutableSet.of(MrX.MRX))) ? new MoveScore(null, Integer.MAX_VALUE) : new MoveScore(null, Integer.MIN_VALUE);
 		}
-		// If depth = 0, statically evaluate a board
-		if (depth == 0) return minimaxScore(gameState);
+		// If depth = 0, statically evaluate the board, there is no move to play at this point, we just want to score the position of mrX
+		if (depth == 0) return new MoveScore(null, minimaxScore(gameState));
 
 		// If we don't yet have a winner, we can assume getAvailableMoves() is NOT empty
 		ImmutableSet<Move> moves = gameState.getAvailableMoves();
+		// initialise best move to the first one
+		Move bestMove = moves.asList().get(0);
 
 		// If evaluating Mr. X's moves:
 		if (isMaxPlayer) {
 			int maxEval = Integer.MIN_VALUE;
 			for (Move move : moves) {
-				int eval = minimax(gameState.advance(move), depth - 1, false);
-				maxEval = Math.max(maxEval, eval);
+				int eval = minimax(gameState.advance(move), depth - 1, alpha, beta, false).score;
+				if (eval > maxEval) {
+					maxEval = eval;
+					bestMove = move;
+				}
+				alpha = Math.max(alpha, eval);
+				if (beta <= alpha) break;
 			}
 
-			return maxEval;
+			return new MoveScore(bestMove, maxEval);
 		}
 		// Else, if evaluating the detective's moves:
 		else {
 			// TODO ERROR: DOESN'T WORK FOR MULTIPLE DETECTIVES!
+
+			// make a hashmap where for every detective (key), we will save the best move, which minimises MrX's score
+			ImmutableSet<Piece> players = gameState.getPlayers();
+			Map<Piece, Integer> detectiveBestMoves = new HashMap<>(players.size() - 1);
+			for (Piece piece : players) {
+				if (piece.isDetective()) {
+					// best move first initialised to max value for all
+					detectiveBestMoves.put(piece, Integer.MAX_VALUE);
+				}
+			}
 			int minEval = Integer.MAX_VALUE;
 			for (Move move : moves) {
-				int eval = minimax(gameState.advance(move), depth - 1, true);
-				minEval = Math.min(minEval, eval);
+				if (move.commencedBy() == MrX.MRX) {
+					System.out.println("MRX IN DETECTIVES");
+				}
+				int eval = minimax(gameState.advance(move), depth - 1, alpha, beta, true).score;
+				if (eval < minEval) {
+					minEval = eval;
+					bestMove = move;
+				}				beta = Math.min(beta, eval);
+				if (beta <= alpha) break;
 			}
 
-			return minEval;
+			return new MoveScore(bestMove, minEval);
 		}
 	}
 
@@ -106,9 +135,11 @@ public class Filipek implements Ai {
 			else if (distance < min2) min2 = distance;
 		}
 
+		System.out.println((DIST_WEIGHT * (min1 - 3)));
 		// If there is only one detective (i.e. two players), don't factor in the second min. distance
 		if (board.getPlayers().size() == 2) return (DIST_WEIGHT * (min1 - 3));
 
+		System.out.println((DIST_WEIGHT * ((min1 - 3) + Math.floor(0.5 * (min2 - 2)))));
 		return (int) (DIST_WEIGHT * ((min1 - 3) + Math.floor(0.5 * (min2 - 2))));
 	}
 
