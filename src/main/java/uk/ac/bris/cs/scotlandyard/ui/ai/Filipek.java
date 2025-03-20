@@ -4,9 +4,11 @@ import java.util.*;
 import java.util.concurrent.TimeUnit;
 import javax.annotation.Nonnull;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import io.atlassian.fugue.Pair;
+import net.bytebuddy.matcher.MethodOverrideMatcher;
 import uk.ac.bris.cs.scotlandyard.model.*;
 
 import static uk.ac.bris.cs.scotlandyard.model.Piece.Detective;
@@ -18,37 +20,122 @@ public class Filipek implements Ai {
 	public String name() { return "Filipek"; }
 
 	@Nonnull @Override
-	public Move pickMove(
-			@Nonnull Board board,
-			Pair<Long, TimeUnit> timeoutPair) {
+	public Move pickMove(@Nonnull Board board, Pair<Long, TimeUnit> timeoutPair) {
+		// No. of turns to look ahead (turn = Mr. X move + all detective moves)
+		final int TURNS = 1;
 
-		// get all available moves and store them in moves variable
-		var moves = board.getAvailableMoves().asList();
-		// map to store scores of every move
-		Map<Move, Integer> scoreForMoves = new HashMap<>();
+		Board.GameState gameState = createGameState(board);
 
-		// calls score for all the available moves
-		for (var move : moves) {
-			if (move instanceof Move.SingleMove) {
-				scoreForMoves.put(move, score(board, (Move.SingleMove) move));
-				System.out.println("for " + ((Move.SingleMove) move).ticket + " to " + ((Move.SingleMove) move).destination + " the score: " + score(board, (Move.SingleMove) move));
-			}
-			else if (move instanceof Move.DoubleMove) {
-				scoreForMoves.put(move, score(board, (Move.DoubleMove) move));
-				System.out.println("for " + ((Move.DoubleMove) move).ticket1 + " " + ((Move.DoubleMove) move).ticket2 + " to " + ((Move.DoubleMove) move).destination2 + " the score: " + score(board, (Move.DoubleMove) move) + " DOUBLE");
 
+		ImmutableSet<Move> moves = gameState.getAvailableMoves();
+
+		int bestEval = Integer.MIN_VALUE;
+		Move bestMove = moves.asList().get(0);
+		// So that we never return a null move, initialise bestMove to the first move
+
+		for (Move move : moves) {
+			// Note: Depth is multiplied
+			int eval = minimax(gameState.advance(move), TURNS * 2, false);
+			if (eval > bestEval) {
+				bestEval = eval;
+				bestMove = move;
 			}
 		}
-		// pick the best move with the highest score, and return the key for it, so the move itself
-		Move bestMove = scoreForMoves.entrySet().stream()
-				.max(Map.Entry.comparingByValue())
-				.map(Map.Entry::getKey)
-				.orElse(null);
 
 		return bestMove;
 	}
 
+	// Note: MaxPlayer = Mr. X
+	public int minimax(Board.GameState gameState, int depth, boolean isMaxPlayer) {
+		System.out.println("Current depth: " + depth);
+		// First, check for a winner
+		if (!gameState.getWinner().isEmpty()) {
+			return (gameState.getWinner().equals(ImmutableSet.of(MrX.MRX))) ? Integer.MAX_VALUE : Integer.MIN_VALUE;
+		}
+		// If depth = 0, statically evaluate a board
+		if (depth == 0) return minimaxScore(gameState);
 
+		// If we don't yet have a winner, we can assume getAvailableMoves() is NOT empty
+		ImmutableSet<Move> moves = gameState.getAvailableMoves();
+
+		// If evaluating Mr. X's moves:
+		if (isMaxPlayer) {
+			int maxEval = Integer.MIN_VALUE;
+			for (Move move : moves) {
+				int eval = minimax(gameState.advance(move), depth - 1, false);
+				maxEval = Math.max(maxEval, eval);
+			}
+
+			return maxEval;
+		}
+		// Else, if evaluating the detective's moves:
+		else {
+			// TODO ERROR: DOESN'T WORK FOR MULTIPLE DETECTIVES!
+			int minEval = Integer.MAX_VALUE;
+			for (Move move : moves) {
+				int eval = minimax(gameState.advance(move), depth - 1, true);
+				minEval = Math.min(minEval, eval);
+			}
+
+			return minEval;
+		}
+	}
+
+	// TODO: ONLY WORKS WHEN CALLED ON MR Xs TURN, MAY OR MAY NOT BE A PROBLEM IM NOT SURE
+	private int minimaxScore(Board board) {
+		final int DIST_WEIGHT = 10;
+
+		// Get the ITERATOR over getAvailableMoves()
+		Iterator<Move> moveIterator = board.getAvailableMoves().iterator();
+		// To get the current location, use the iterator to get the first move, and call source() ;)
+		int source = moveIterator.next().source();
+		// NOTE: minmaxScore() is never called from a position where getAvailableMoves() would be empty
+
+
+		// Score a move based off how far Mr. X is from the two closest detectives
+		List<Integer> distances = detectiveDistances(board, source);
+
+		int min1 = Integer.MAX_VALUE;
+		int min2 = Integer.MAX_VALUE;
+
+		for (int distance : distances) {
+			if (distance < min1) {
+				min2 = min1;
+				min1 = distance;
+			}
+			else if (distance < min2) min2 = distance;
+		}
+
+		// If there is only one detective (i.e. two players), don't factor in the second min. distance
+		if (board.getPlayers().size() == 2) return (DIST_WEIGHT * (min1 - 3));
+
+		return (int) (DIST_WEIGHT * ((min1 - 3) + Math.floor(0.5 * (min2 - 2))));
+	}
+
+	private Board.GameState createGameState(Board board) {
+		// NOTE: Works on Mr. X's turn ONLY
+		// Get the ITERATOR over getAvailableMoves()
+		Iterator<Move> moveIterator = board.getAvailableMoves().iterator();
+		// Use the iterator to get the first Mr. X move, then call source() for his location
+		int mrXLocation = moveIterator.next().source();
+		Player mrX = new Player(MrX.MRX, convertTickets(board.getPlayerTickets(MrX.MRX).get()), mrXLocation);
+
+		ImmutableList.Builder<Player> builder = ImmutableList.builder();
+		for (Piece piece : board.getPlayers()) {
+			if (piece.isDetective()) {
+				builder.add(new Player(piece,
+						convertTickets(board.getPlayerTickets(piece).get()),
+						board.getDetectiveLocation((Detective) piece).get())
+				);
+			}
+		}
+
+		return new MyGameStateFactory().build(board.getSetup(), mrX, builder.build());
+	}
+
+
+
+	// TODO make global constants for the scoring
 	private int score(@Nonnull Board board, Move.SingleMove move) {
 		// The final score of the move
 		int score = 0;
@@ -100,8 +187,9 @@ public class Filipek implements Ai {
 		return score;
 	}
 
-	// ---------- Helper Functions ----------
 
+
+	// ---------- Helper Functions ----------
 	private int scoreDistances(Board board, int source, int destination, int WEIGHT_DISTANCE) {
 		// distances at the starting location of the move, the source
 		List<Integer> detectiveDistancesSource = detectiveDistances(board, source);
@@ -120,7 +208,7 @@ public class Filipek implements Ai {
 	}
 
 	// Scores the connectivity of the destination node (Used in: score())
-	private int scoreConnectivity(Board board, int source, int destination, int weight) {
+	private int scoreConnectivity(Board board, int source, int destination, int WEIGHT) {
 		// Increase score for each adjacent available move at the destination
 		int score = 0;
 
@@ -145,14 +233,14 @@ public class Filipek implements Ai {
 
 			ImmutableMap<ScotlandYard.Ticket, Integer> finalMrXTickets = mrXTickets;
 			if (moves.stream().anyMatch(transport -> finalMrXTickets.getOrDefault(transport.requiredTicket(), 0) > 0)) {
-				score += weight; // Stream terminates immediately once condition met
+				score += WEIGHT; // Stream terminates immediately once condition met
 			}
 		}
 
 		return score;
 	}
 
-	// Returns all detectives as players (Used in: score())
+	// Returns the distance of each detective to Mr. X (Used in: score())
 	private List<Integer> detectiveDistances(Board board, int mrXLocation) {
 		List<Integer> distances = new ArrayList<>();
 		for (Piece piece : board.getPlayers()) {
