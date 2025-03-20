@@ -4,11 +4,11 @@ import java.util.*;
 import java.util.concurrent.TimeUnit;
 import javax.annotation.Nonnull;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import io.atlassian.fugue.Pair;
-import net.bytebuddy.matcher.MethodOverrideMatcher;
 import uk.ac.bris.cs.scotlandyard.model.*;
 
 import static uk.ac.bris.cs.scotlandyard.model.Piece.Detective;
@@ -32,24 +32,6 @@ public class Filipek implements Ai {
 		return minimax(gameState, TURNS * 2, Integer.MIN_VALUE, Integer.MAX_VALUE ,true).move;
 	}
 
-	// class to score the move used in minimax, thus we get both score and the move
-	class MoveScore {
-		private final Move move;
-		private final int score;
-
-		public MoveScore(Move move, int score) {
-			this.move = move;
-			this.score = score;
-		}
-
-		public Move getMove() {
-			return move;
-		}
-		public int getScore() {
-			return score;
-		}
-	}
-
 	// Note: MaxPlayer = Mr. X, alpha, beta are the best scores either side can achieve
 	public MoveScore minimax(Board.GameState gameState, int depth, int alpha, int beta, boolean isMaxPlayer) {
 		// First, check for a winner
@@ -62,6 +44,12 @@ public class Filipek implements Ai {
 
 		// If we don't yet have a winner, we can assume getAvailableMoves() is NOT empty
 		ImmutableSet<Move> moves = gameState.getAvailableMoves();
+
+		// if detectives are about to play, so depth is odd, we create compound moves for them to simulate as if they were just one player
+		if (depth % 2 == 1) {
+			moves = generateDetectiveMoves(gameState, moves);
+		}
+
 		// initialise best move to the first one
 		Move bestMove = moves.asList().get(0);
 
@@ -82,23 +70,14 @@ public class Filipek implements Ai {
 		}
 		// Else, if evaluating the detective's moves:
 		else {
-			// TODO ERROR: DOESN'T WORK FOR MULTIPLE DETECTIVES!
-
-			// make a hashmap where for every detective (key), we will save the best move, which minimises MrX's score
-			ImmutableSet<Piece> players = gameState.getPlayers();
-			Map<Piece, Integer> detectiveBestMoves = new HashMap<>(players.size() - 1);
-			for (Piece piece : players) {
-				if (piece.isDetective()) {
-					// best move first initialised to max value for all
-					detectiveBestMoves.put(piece, Integer.MAX_VALUE);
-				}
-			}
+			// TODO ERROR: DOESN'T WORK FOR MULTIPLE DETECTIVES! THE PROBLEM IS PROBABLY WITH THE ADVANCE METHOD IN DETECTIVEMOVES
 			int minEval = Integer.MAX_VALUE;
 			for (Move move : moves) {
 				if (move.commencedBy() == MrX.MRX) {
-					System.out.println("MRX IN DETECTIVES");
+					throw new IllegalArgumentException("MrX in detective moves");
 				}
-				int eval = minimax(gameState.advance(move), depth - 1, alpha, beta, true).score;
+
+				int eval = minimax(gameState.advance((DetectiveMoves)move), depth - 1, alpha, beta, true).score;
 				if (eval < minEval) {
 					minEval = eval;
 					bestMove = move;
@@ -110,7 +89,95 @@ public class Filipek implements Ai {
 		}
 	}
 
-	// TODO: ONLY WORKS WHEN CALLED ON MR Xs TURN, MAY OR MAY NOT BE A PROBLEM IM NOT SURE
+	// class to score the move used in minimax, thus we get both score and the move
+	class MoveScore {
+		private final Move move;
+		private final int score;
+
+		public MoveScore(Move move, int score) {
+			this.move = move;
+			this.score = score;
+		}
+
+		public Move getMove() {
+			return move;
+		}
+		public int getScore() {
+			return score;
+		}
+	}
+
+	// class to hold compound/joint movements as detectives
+	class DetectiveMoves implements Move {
+		private final List<Move> moves;
+
+		public DetectiveMoves(List<Move> moves) {
+			this.moves = moves;
+		}
+
+		// advance should iterate over all the SingleMoves that detectives have and advance the gameState
+		public Board.GameState advance(Board.GameState gameState) {
+			Board.GameState newGameState = gameState;
+			for (Move move : moves) {
+				newGameState = newGameState.advance(move);
+			}
+			return newGameState;
+		}
+
+		// following methods are not needed for the compound moves of detectives
+		public Piece commencedBy() {
+			return null;
+		}
+
+		public Iterable<ScotlandYard.Ticket> tickets() {
+			return null;
+		}
+
+		@Override
+		public int source() {
+			return -1;
+		}
+
+		@Override
+		public <T> T accept(Visitor<T> visitor) {
+			return null;
+		}
+	}
+
+	// detectives have to move as one person, so that the new game state gets updated with all their moves
+	// thus we need a class, DetectiveMoves that implements the joint movements of detectives and can advance the gameState
+	// this returns all the possible joint/compound movements of detectives
+	public ImmutableSet<Move> generateDetectiveMoves (Board.GameState gameState, ImmutableSet<Move> moves){
+		// make a hashmap where for every detective (key), it will hold all its available moves
+		ImmutableSet<Piece> players = gameState.getPlayers();
+		Map<Piece, List<Move>> movesByDetectives = new HashMap<>(players.size() - 1);
+		for (Piece piece : players) {
+			if (piece.isDetective()) {
+				// best move first initialised to max value for all
+				movesByDetectives.put(piece, new ArrayList<>());
+			}
+		}
+		for (Move move : moves) {
+			Piece detective = move.commencedBy();
+			movesByDetectives.get(detective).add(move);
+		}
+		List<List<Move>> moveCombinations = generateDetectiveMovesCartesian(movesByDetectives);
+		ImmutableSet.Builder<Move> detectiveMoves = ImmutableSet.builder();
+
+		for (List<Move> combination : moveCombinations) {
+			detectiveMoves.add(new DetectiveMoves(combination));
+		}
+
+		return detectiveMoves.build();
+	}
+
+	// helper function to create all possible combinations of detectiveMoves
+	public List<List<Move>> generateDetectiveMovesCartesian(Map<Piece, List<Move>> movesByDetectives) {
+		List<List<Move>> moveLists = new ArrayList<>(movesByDetectives.values());
+		return Lists.cartesianProduct(moveLists);
+	}
+
+	// TODO: EITHER THIS SCORING IS WRONG OR THE ALPHA-BETA PRUNING, BUT IT GIVES WEIRD SCORES, ITS PROBABLY THE MINMAX, BECAUSE THIS LOOKS STRAIGHTFORWARD
 	private int minimaxScore(Board board) {
 		final int DIST_WEIGHT = 10;
 
