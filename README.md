@@ -4,8 +4,10 @@ AI agent designed to play the Mr. X role in Scotland Yard, using game state info
 
 ## Overview
 This project was developed as a part of a university coursework to explore artificial intelligence in game environment. The first part consisted of implementing different design patterns into a A GUI skeleton that was given using Java. Most notably Factory, Visitor, 
-and Observer patterns, with the aim of understanding the general use of them in other programming languages as well. The second part implementation is in this repository. The goal was to design an AI system by choosing suitable algorithms that will enable 
-Mr. X to evaluate positions of detectives, their possible moves, his available moves, and decide on the best moves forward.
+and Observer patterns, with the aim of understanding the general use of them in other programming languages as well. [See here](./cw-model).  
+
+The second part implementation is in this repository. The goal was to design an AI system by choosing suitable algorithms that will enable 
+Mr. X to evaluate positions of detectives, their possible moves, his available moves, and decide on the best moves forward. [See here](./cw-ai/src/main/java/uk/ac/bris/cs/scotlandyard/ui/ai/Filipek.java).
 
 ## Game mechanics
 In Scotland Yard, one of the players takes on the role of Mr. X. His job is to move from point to point around the map of London taking taxis, buses or subways. The detectives – that is, the remaining players acting in concert – move around similarly 
@@ -48,6 +50,8 @@ to play the game (opens the GUI)
 mvn clean compile exec:java
 ```
 Choose the setup and AI agent for Mr. X:
+
+![GUI Explanation](./documentation/GUI_explanation.png)
 
 ## Acknowlegements
 University of Bristol — Object Oriented Programming coursework
